@@ -1,0 +1,48 @@
+name: Docker Image CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout master
+      uses: actions/checkout@v2
+
+    - name: Fetch tags for GitVersion
+      run: git fetch --tags
+
+    - name: Fetch master for GitVersion
+      if: github.ref != 'refs/heads/master'
+      run: git branch --create-reflog master origin/master
+
+    - name: GitVersion
+      id: gitversion  # step id used as reference for output values
+      uses: roryprimrose/rungitversion@v1.0.0 
+      
+    - name: Build the Docker image
+      run: docker build . --file Dockerfile --tag gcristofol/graphql:${{ steps.gitversion.outputs.SemVer }}
+
+    - name: Docker Login
+      env:
+        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      run: docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+
+    - name: Push image to Docker Hub
+      run: docker push gcristofol/graphql
+
+    - name: Update deployment manifest
+      run: TAG="${{ steps.gitversion.outputs.SemVer }}" && sed -i 's|<IMAGE>|gcristofol/graphql:'${TAG}'|' $GITHUB_WORKSPACE/k8s/graphql-deployment.yaml
+
+    - name: Output version values 
+      run: |
+        cat $GITHUB_WORKSPACE/k8s/graphql-deployment.yaml
+
